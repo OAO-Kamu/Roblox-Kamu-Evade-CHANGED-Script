@@ -57,8 +57,7 @@ local ActiveSpeedBoost,ActiveAutoUseCoinFlip,ActiveEspSurvivors,ActiveNoStun,Act
 
 Rayfield:Notify({
    Title = "检查版本ing…",
-   Content = "✅ |“YWY”定制版 
-   awa N/A Beta.load =...'vion'...",
+   Content = "✅ |“YWY”定制版awa N/A Beta.load =...'vion'...",
    Duration = 5,
    Image = 5098434948,
 })
