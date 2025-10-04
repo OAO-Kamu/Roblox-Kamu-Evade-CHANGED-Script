@@ -1,0 +1,1677 @@
+-- Load WindUI
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+
+local function gradient(text, startColor, endColor)
+    local result = ""
+    for i = 1, #text do
+        local t = (i - 1) / (#text - 1)
+        local r = math.floor((startColor.R + (endColor.R - startColor.R) * t) * 255)
+        local g = math.floor((startColor.G + (endColor.G - startColor.G) * t) * 255)
+        local b = math.floor((startColor.B + (endColor.B - startColor.B) * t) * 255)
+        result = result .. string.format('<font color="rgb(%d,%d,%d)">%s</font>', r, g, b, text:sub(i, i))
+    end
+    return result
+end
+
+-- Show popup
+WindUI:Popup({
+    Title = gradient("Evade Dara HUB!", Color3.fromHex("#6A11CB"), Color3.fromHex("#2575FC")),
+    Icon = "sparkles",
+    Content = "By:Q3E4",
+    Buttons = {
+        {
+            Title = "Com",
+            Icon = "arrow-right",
+            Variant = "Chen",
+            Callback = function() end
+        }
+    }
+})
+
+-- Set WindUI properties
+WindUI.TransparencyValue = 0.2
+WindUI:SetTheme("Dark")
+
+-- Create WindUI window
+local Window = WindUI:CreateWindow({
+    Title = "Evade Dara HUB",
+    Icon = "rocket",
+    Author = "",
+    Folder = "...",
+    Size = UDim2.fromOffset(450, 470),
+    Theme = "Dark",
+    HidePanelBackground = false,
+    Acrylic = false,
+    HideSearchBar = false,
+    SideBarWidth = 200,
+    User = {
+        Enabled = true,
+        Anonymous = true,
+        Callback = function()
+        end
+    }
+})
+
+-- Add tags and time tag
+Window:SetIconSize(48)
+Window:CreateTopbarButton("theme-switcher", "moon", function()
+    WindUI:SetTheme(WindUI:GetCurrentTheme() == "Dark" and "Light" or "Dark")
+end, 990)
+
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Player reference
+local player = Players.LocalPlayer
+
+-- Feature states
+local featureStates = {
+    InfiniteJump = false,
+    AutoJump = false,
+    Fly = false,
+    SpeedHack = false,
+    JumpBoost = false,
+    AntiAFK = false,
+    AutoCarry = false,
+    FullBright = false,
+    NoFog = false,
+    AutoVote = false,
+    AutoSelfRevive = false,
+    AutoWin = false,
+    AutoMoneyFarm = false,
+    AutoRevive = false,
+    PlayerTracer = false,
+    NextbotTracer = false,
+    DownedTracer = false,
+    PlayerNameESP = false,
+    PlayerDistanceESP = false,
+    NextbotNameESP = false,
+    NextbotDistanceESP = false,
+    DownedNameESP = false,
+    DownedDistanceESP = false,
+    FlySpeed = 50,
+    TpwalkValue = 1,
+    JumpPower = 50,
+    JumpMethod = "Hold",
+    SelectedMap = 1,
+    DesiredFOV = 70
+}
+
+-- Character references
+local character, humanoid, rootPart
+local isJumpHeld = false
+
+-- Fly Variables
+local flying = false
+local bodyVelocity, bodyGyro
+
+-- Speed Hack Variables
+local ToggleTpwalk = false
+local TpwalkConnection
+
+-- Jump Boost Variables
+local jumpCount = 0
+local MAX_JUMPS = math.huge
+
+-- Auto Jump Variables
+local AutoJumpConnection
+
+-- Anti AFK Variables
+local AntiAFKConnection
+
+-- Auto Carry Variables
+local AutoCarryConnection
+
+-- Auto Revive Variables
+local reviveRange = 10
+local loopDelay = 0.15
+local reviveLoopHandle = nil
+local interactEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Character"):WaitForChild("Interact")
+
+-- ESP Variables
+local playerESPThread, ticketESPThread, nextbotESPThread, tracerThread
+local tracerLines = {}
+
+-- Tracer Variables
+local playerTracerConnection, nextbotTracerConnection, downedTracerConnection
+local playerTracerLines = {}
+local nextbotTracerLines = {}
+local downedTracerLines = {}
+
+-- Name ESP Variables
+local playerNameESPConnection, nextbotNameESPConnection, downedNameESPConnection
+local playerNameESPLabels = {}
+local nextbotNameESPLabels = {}
+local downedNameESPLabels = {}
+
+-- Visual Variables
+local originalBrightness = Lighting.Brightness
+local originalFogEnd = Lighting.FogEnd
+local originalOutdoorAmbient = Lighting.OutdoorAmbient
+local originalAmbient = Lighting.Ambient
+local originalGlobalShadows = Lighting.GlobalShadows
+local originalFOV = workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView or 70
+
+-- Function to check if player is grounded
+local function isPlayerGrounded()
+    if not character or not humanoid or not rootPart then
+        return false
+    end
+    local rayOrigin = rootPart.Position
+    local rayDirection = Vector3.new(0, -3, 0)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    local raycastResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    return raycastResult ~= nil
+end
+
+-- Function to make player jump
+local function bouncePlayer()
+    if character and humanoid and rootPart and humanoid.Health > 0 then
+        if not isPlayerGrounded() then
+            humanoid.Jump = true
+            local jumpVelocity = math.sqrt(1.5 * humanoid.JumpHeight * workspace.Gravity) * 1.5
+            rootPart.Velocity = Vector3.new(rootPart.Velocity.X, jumpVelocity * humanoid.JumpPower / 50, rootPart.Velocity.Z)
+        end
+    end
+end
+
+-- Function to get distance from local player
+local function getDistanceFromPlayer(targetPosition)
+    if not character or not rootPart then return 0 end
+    return (targetPosition - rootPart.Position).Magnitude
+end
+
+-- Auto Jump Functions
+local function startAutoJump()
+    AutoJumpConnection = RunService.Heartbeat:Connect(function()
+        if featureStates.AutoJump and character and humanoid and rootPart and humanoid.Health > 0 then
+            humanoid.Jump = true
+        end
+    end)
+end
+
+local function stopAutoJump()
+    if AutoJumpConnection then
+        AutoJumpConnection:Disconnect()
+        AutoJumpConnection = nil
+    end
+end
+
+-- Auto Revive Functions
+local function isPlayerDowned(pl)
+    if not pl or not pl.Character then return false end
+    local char = pl.Character
+    local humanoid = char:FindFirstChild("Humanoid")
+    if humanoid and humanoid.Health <= 0 then
+        return true
+    end
+    if char.GetAttribute and char:GetAttribute("Downed") == true then
+        return true
+    end
+    return false
+end
+
+local function startAutoRevive()
+    if reviveLoopHandle then return end
+    reviveLoopHandle = task.spawn(function()
+        while featureStates.AutoRevive do
+            local LocalPlayer = Players.LocalPlayer
+            if LocalPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local myHRP = LocalPlayer.Character.HumanoidRootPart
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl ~= LocalPlayer then
+                        local char = pl.Character
+                        if char and char:FindFirstChild("HumanoidRootPart") then
+                            if isPlayerDowned(pl) then
+                                local hrp = char.HumanoidRootPart
+                                local success, dist = pcall(function()
+                                    return (myHRP.Position - hrp.Position).Magnitude
+                                end)
+                                if success and dist and dist <= reviveRange then
+                                    pcall(function()
+                                        interactEvent:FireServer("Revive", true, pl.Name)
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(loopDelay)
+        end
+        reviveLoopHandle = nil
+    end)
+end
+
+local function stopAutoRevive()
+    featureStates.AutoRevive = false
+    if reviveLoopHandle then
+        task.cancel(reviveLoopHandle)
+        reviveLoopHandle = nil
+    end
+end
+
+-- Fly Functions
+local function startFlying()
+    if not character or not humanoid or not rootPart then return end
+    flying = true
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.Parent = rootPart
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.CFrame = rootPart.CFrame
+    bodyGyro.Parent = rootPart
+    humanoid.PlatformStand = true
+end
+
+local function stopFlying()
+    flying = false
+    if bodyVelocity then
+        bodyVelocity:Destroy()
+        bodyVelocity = nil
+    end
+    if bodyGyro then
+        bodyGyro:Destroy()
+        bodyGyro = nil
+    end
+    if humanoid then
+        humanoid.PlatformStand = false
+    end
+end
+
+local function updateFly()
+    if not flying or not bodyVelocity or not bodyGyro then return end
+    local camera = workspace.CurrentCamera
+    local cameraCFrame = camera.CFrame
+    local direction = Vector3.new(0, 0, 0)
+    local moveDirection = humanoid.MoveDirection
+    if moveDirection.Magnitude > 0 then
+        local forwardVector = cameraCFrame.LookVector
+        local rightVector = cameraCFrame.RightVector
+        local forwardComponent = moveDirection:Dot(forwardVector) * forwardVector
+        local rightComponent = moveDirection:Dot(rightVector) * rightVector
+        direction = direction + (forwardComponent + rightComponent).Unit * moveDirection.Magnitude
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.Space) or humanoid.Jump then
+        direction = direction + Vector3.new(0, 1, 0)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+        direction = direction - Vector3.new(0, 1, 0)
+    end
+    bodyVelocity.Velocity = direction.Magnitude > 0 and direction.Unit * (featureStates.FlySpeed * 2) or Vector3.new(0, 0, 0)
+    bodyGyro.CFrame = cameraCFrame
+end
+
+-- Speed Hack (TP Walk) Functions
+local function Tpwalking()
+    if ToggleTpwalk and character and humanoid and rootPart then
+        local moveDirection = humanoid.MoveDirection
+        local moveDistance = featureStates.TpwalkValue
+        local origin = rootPart.Position
+        local direction = moveDirection * moveDistance
+        local targetPosition = origin + direction
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {character}
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+        if raycastResult then
+            local hitPosition = raycastResult.Position
+            local distanceToHit = (hitPosition - origin).Magnitude
+            if distanceToHit < math.abs(moveDistance) then
+                targetPosition = origin + (direction.Unit * (distanceToHit - 0.1))
+            end
+        end
+        rootPart.CFrame = CFrame.new(targetPosition) * rootPart.CFrame.Rotation
+        rootPart.CanCollide = true
+    end
+end
+
+local function startTpwalk()
+    ToggleTpwalk = true
+    if TpwalkConnection then
+        TpwalkConnection:Disconnect()
+    end
+    TpwalkConnection = RunService.Heartbeat:Connect(Tpwalking)
+end
+
+local function stopTpwalk()
+    ToggleTpwalk = false
+    if TpwalkConnection then
+        TpwalkConnection:Disconnect()
+        TpwalkConnection = nil
+    end
+    if rootPart then
+        rootPart.CanCollide = false
+    end
+end
+
+-- Jump Boost Functions
+local function setupJumpBoost()
+    if not character or not humanoid then return end
+    humanoid.StateChanged:Connect(function(oldState, newState)
+        if newState == Enum.HumanoidStateType.Landed then
+            jumpCount = 0
+        end
+    end)
+    humanoid.Jumping:Connect(function(isJumping)
+        if isJumping and featureStates.JumpBoost and jumpCount < MAX_JUMPS then
+            jumpCount = jumpCount + 1
+            humanoid.JumpHeight = featureStates.JumpPower
+            if jumpCount > 1 then
+                rootPart:ApplyImpulse(Vector3.new(0, featureStates.JumpPower * rootPart.Mass, 0))
+            end
+        end
+    end)
+end
+
+local function startJumpBoost()
+    if humanoid then
+        humanoid.JumpPower = featureStates.JumpPower
+    end
+end
+
+local function stopJumpBoost()
+    jumpCount = 0
+    if humanoid then
+        humanoid.JumpPower = 50
+    end
+end
+
+-- Anti AFK Functions
+local function startAntiAFK()
+    AntiAFKConnection = player.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end
+
+local function stopAntiAFK()
+    if AntiAFKConnection then
+        AntiAFKConnection:Disconnect()
+        AntiAFKConnection = nil
+    end
+end
+
+-- Auto Carry Functions
+local function startAutoCarry()
+    AutoCarryConnection = RunService.Heartbeat:Connect(function()
+        if not featureStates.AutoCarry then return end
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            for _, other in ipairs(Players:GetPlayers()) do
+                if other ~= player and other.Character and other.Character:FindFirstChild("HumanoidRootPart") then
+                    local dist = (hrp.Position - other.Character.HumanoidRootPart.Position).Magnitude
+                    if dist <= 20 then
+                        local args = { "Carry", [3] = other.Name }
+                        pcall(function()
+                            game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("Character"):WaitForChild("Interact"):FireServer(unpack(args))
+                        end)
+                        task.wait(0.01)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopAutoCarry()
+    if AutoCarryConnection then
+        AutoCarryConnection:Disconnect()
+        AutoCarryConnection = nil
+    end
+end
+
+-- FullBright Functions
+local function startFullBright()
+    originalBrightness = Lighting.Brightness
+    originalOutdoorAmbient = Lighting.OutdoorAmbient
+    originalAmbient = Lighting.Ambient
+    originalGlobalShadows = Lighting.GlobalShadows
+    Lighting.Brightness = 2
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    Lighting.GlobalShadows = false
+end
+
+local function stopFullBright()
+    Lighting.Brightness = originalBrightness
+    Lighting.OutdoorAmbient = originalOutdoorAmbient
+    Lighting.Ambient = originalAmbient
+    Lighting.GlobalShadows = originalGlobalShadows
+end
+
+-- No Fog Functions
+local function startNoFog()
+    originalFogEnd = Lighting.FogEnd
+    Lighting.FogEnd = 1000000
+end
+
+local function stopNoFog()
+    Lighting.FogEnd = originalFogEnd
+end
+
+-- Auto Vote Functions
+local function fireVoteServer(mapNumber)
+    local eventsFolder = ReplicatedStorage:WaitForChild("Events", 10)
+    if eventsFolder then
+        local playerFolder = eventsFolder:WaitForChild("Player", 10)
+        if playerFolder then
+            local voteEvent = playerFolder:WaitForChild("Vote", 10)
+            if voteEvent and typeof(voteEvent) == "Instance" and voteEvent:IsA("RemoteEvent") then
+                local args = {[1] = mapNumber}
+                voteEvent:FireServer(unpack(args))
+            end
+        end
+    end
+end
+
+local function startAutoVote()
+    AutoVoteConnection = RunService.Heartbeat:Connect(function()
+        fireVoteServer(featureStates.SelectedMap)
+    end)
+end
+
+local function stopAutoVote()
+    if AutoVoteConnection then
+        AutoVoteConnection:Disconnect()
+        AutoVoteConnection = nil
+    end
+end
+
+-- Auto Self Revive Functions
+local function startAutoSelfRevive()
+    AutoSelfReviveConnection = RunService.Heartbeat:Connect(function()
+        if character and character:GetAttribute("Downed") then
+            ReplicatedStorage.Events.Player.ChangePlayerMode:FireServer(true)
+        end
+    end)
+end
+
+local function stopAutoSelfRevive()
+    if AutoSelfReviveConnection then
+        AutoSelfReviveConnection:Disconnect()
+        AutoSelfReviveConnection = nil
+    end
+end
+
+-- Auto Win Functions
+local function startAutoWin()
+    AutoWinConnection = RunService.Heartbeat:Connect(function()
+        if character and rootPart then
+            if character:GetAttribute("Downed") then
+                ReplicatedStorage.Events.Player.ChangePlayerMode:FireServer(true)
+                task.wait(0.5)
+            end
+            if not character:GetAttribute("Downed") then
+                local securityPart = Instance.new("Part")
+                securityPart.Name = "SecurityPartTemp"
+                securityPart.Size = Vector3.new(10, 1, 10)
+                securityPart.Position = Vector3.new(0, 500, 0)
+                securityPart.Anchored = true
+                securityPart.Transparency = 1
+                securityPart.CanCollide = true
+                securityPart.Parent = workspace
+                rootPart.CFrame = securityPart.CFrame + Vector3.new(0, 3, 0)
+                task.wait(0.5)
+                securityPart:Destroy()
+            end
+        end
+    end)
+end
+
+local function stopAutoWin()
+    if AutoWinConnection then
+        AutoWinConnection:Disconnect()
+        AutoWinConnection = nil
+    end
+end
+
+-- Auto Money Farm Functions
+local function startAutoMoneyFarm()
+    AutoMoneyFarmConnection = RunService.Heartbeat:Connect(function()
+        if character and rootPart then
+            if character:GetAttribute("Downed") then
+                ReplicatedStorage.Events.Player.ChangePlayerMode:FireServer(true)
+                task.wait(0.5)
+            end
+            local downedPlayerFound = false
+            local playersInGame = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+            if playersInGame then
+                for _, v in pairs(playersInGame:GetChildren()) do
+                    if v:IsA("Model") and v:GetAttribute("Downed") then
+                        rootPart.CFrame = v.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                        ReplicatedStorage.Events.Character.Interact:FireServer("Revive", true, v)
+                        task.wait(0.5)
+                        downedPlayerFound = true
+                        break
+                    end
+                end
+            end
+            local securityPart = Instance.new("Part")
+            securityPart.Name = "SecurityPartTemp"
+            securityPart.Size = Vector3.new(10, 1, 10)
+            securityPart.Position = Vector3.new(0, 500, 0)
+            securityPart.Anchored = true
+            securityPart.Transparency = 1
+            securityPart.CanCollide = true
+            securityPart.Parent = workspace
+            rootPart.CFrame = securityPart.CFrame + Vector3.new(0, 3, 0)
+        end
+    end)
+end
+
+local function stopAutoMoneyFarm()
+    if AutoMoneyFarmConnection then
+        AutoMoneyFarmConnection:Disconnect()
+        AutoMoneyFarmConnection = nil
+    end
+end
+
+-- Manual Revive Function
+local function manualRevive()
+    if character and character:GetAttribute("Downed") then
+        ReplicatedStorage.Events.Player.ChangePlayerMode:FireServer(true)
+    end
+end
+
+-- Tracer Functions
+local function cleanupTracers(tracerTable)
+    for _, line in ipairs(tracerTable) do
+        if line and line.Remove then 
+            line:Remove()
+        elseif line then 
+            line.Visible = false 
+        end
+    end
+    tracerTable = {}
+end
+
+local function startPlayerTracer()
+    playerTracerConnection = RunService.Heartbeat:Connect(function()
+        cleanupTracers(playerTracerLines)
+        playerTracerLines = {}
+        local folder = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+        if folder then
+            for _, char in ipairs(folder:GetChildren()) do
+                if char:IsA("Model") then
+                    local team = char:GetAttribute("Team")
+                    local downed = char:GetAttribute("Downed")
+                    if team ~= "Nextbot" and char.Name ~= player.Name and downed ~= true then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if hrp and workspace.CurrentCamera then
+                            local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+                            if onScreen then
+                                local tracer = Drawing.new("Line")
+                                tracer.Color = Color3.fromRGB(0, 255, 0)
+                                tracer.Thickness = 2
+                                tracer.From = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y)
+                                tracer.To = Vector2.new(pos.X, pos.Y)
+                                tracer.ZIndex = 1
+                                tracer.Visible = true
+                                table.insert(playerTracerLines, tracer)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopPlayerTracer()
+    if playerTracerConnection then
+        playerTracerConnection:Disconnect()
+        playerTracerConnection = nil
+    end
+    cleanupTracers(playerTracerLines)
+    playerTracerLines = {}
+end
+
+local function startNextbotTracer()
+    nextbotTracerConnection = RunService.Heartbeat:Connect(function()
+        cleanupTracers(nextbotTracerLines)
+        nextbotTracerLines = {}
+        local folder = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+        if folder then
+            for _, npc in ipairs(folder:GetChildren()) do
+                if npc:IsA("Model") and npc:GetAttribute("Team") == "Nextbot" then
+                    local hrp = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChild("Hitbox")
+                    if hrp and workspace.CurrentCamera then
+                        local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+                        if onScreen then
+                            local tracer = Drawing.new("Line")
+                            tracer.Color = Color3.fromRGB(255, 0, 0)
+                            tracer.Thickness = 2
+                            tracer.From = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y)
+                            tracer.To = Vector2.new(pos.X, pos.Y)
+                            tracer.ZIndex = 1
+                            tracer.Visible = true
+                            table.insert(nextbotTracerLines, tracer)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopNextbotTracer()
+    if nextbotTracerConnection then
+        nextbotTracerConnection:Disconnect()
+        nextbotTracerConnection = nil
+    end
+    cleanupTracers(nextbotTracerLines)
+    nextbotTracerLines = {}
+end
+
+local function startDownedTracer()
+    downedTracerConnection = RunService.Heartbeat:Connect(function()
+        cleanupTracers(downedTracerLines)
+        downedTracerLines = {}
+        local folder = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+        if folder then
+            for _, char in ipairs(folder:GetChildren()) do
+                if char:IsA("Model") then
+                    local team = char:GetAttribute("Team")
+                    local downed = char:GetAttribute("Downed")
+                    if team ~= "Nextbot" and char.Name ~= player.Name and downed == true then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if hrp and workspace.CurrentCamera then
+                            local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+                            if onScreen then
+                                local tracer = Drawing.new("Line")
+                                tracer.Color = Color3.fromRGB(255, 165, 0)
+                                tracer.Thickness = 2
+                                tracer.From = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y)
+                                tracer.To = Vector2.new(pos.X, pos.Y)
+                                tracer.ZIndex = 1
+                                tracer.Visible = true
+                                table.insert(downedTracerLines, tracer)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopDownedTracer()
+    if downedTracerConnection then
+        downedTracerConnection:Disconnect()
+        downedTracerConnection = nil
+    end
+    cleanupTracers(downedTracerLines)
+    downedTracerLines = {}
+end
+
+-- Name ESP Functions
+local function cleanupNameESPLabels(labelTable)
+    for _, label in ipairs(labelTable) do
+        if label and label.Remove then 
+            label:Remove()
+        elseif label then 
+            label.Visible = false 
+        end
+    end
+    labelTable = {}
+end
+
+local function startPlayerNameESP()
+    playerNameESPConnection = RunService.Heartbeat:Connect(function()
+        cleanupNameESPLabels(playerNameESPLabels)
+        playerNameESPLabels = {}
+        local folder = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+        if folder then
+            for _, char in ipairs(folder:GetChildren()) do
+                if char:IsA("Model") then
+                    local team = char:GetAttribute("Team")
+                    local downed = char:GetAttribute("Downed")
+                    if team ~= "Nextbot" and char.Name ~= player.Name and downed ~= true then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if hrp and workspace.CurrentCamera then
+                            local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+                            if onScreen then
+                                local distance = getDistanceFromPlayer(hrp.Position)
+                                local displayText = char.Name
+                                if featureStates.PlayerDistanceESP then
+                                    displayText = displayText .. "\n" .. math.floor(distance) .. "米"
+                                end
+                                local label = Drawing.new("Text")
+                                label.Text = displayText
+                                label.Size = 16
+                                label.Center = true
+                                label.Outline = true
+                                label.OutlineColor = Color3.new(0, 0, 0)
+                                label.Color = Color3.fromRGB(0, 255, 0)
+                                label.Position = Vector2.new(pos.X, pos.Y - 50)
+                                label.Visible = true
+                                table.insert(playerNameESPLabels, label)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopPlayerNameESP()
+    if playerNameESPConnection then
+        playerNameESPConnection:Disconnect()
+        playerNameESPConnection = nil
+    end
+    cleanupNameESPLabels(playerNameESPLabels)
+    playerNameESPLabels = {}
+end
+
+local function startNextbotNameESP()
+    nextbotNameESPConnection = RunService.Heartbeat:Connect(function()
+        cleanupNameESPLabels(nextbotNameESPLabels)
+        nextbotNameESPLabels = {}
+        local folder = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+        if folder then
+            for _, npc in ipairs(folder:GetChildren()) do
+                if npc:IsA("Model") and npc:GetAttribute("Team") == "Nextbot" then
+                    local hrp = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChild("Hitbox")
+                    if hrp and workspace.CurrentCamera then
+                        local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+                        if onScreen then
+                            local distance = getDistanceFromPlayer(hrp.Position)
+                            local displayText = npc.Name
+                            if featureStates.NextbotDistanceESP then
+                                displayText = displayText .. "\n" .. math.floor(distance) .. "米"
+                            end
+                            local label = Drawing.new("Text")
+                            label.Text = displayText
+                            label.Size = 16
+                            label.Center = true
+                            label.Outline = true
+                            label.OutlineColor = Color3.new(0, 0, 0)
+                            label.Color = Color3.fromRGB(255, 0, 0)
+                            label.Position = Vector2.new(pos.X, pos.Y - 50)
+                            label.Visible = true
+                            table.insert(nextbotNameESPLabels, label)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopNextbotNameESP()
+    if nextbotNameESPConnection then
+        nextbotNameESPConnection:Disconnect()
+        nextbotNameESPConnection = nil
+    end
+    cleanupNameESPLabels(nextbotNameESPLabels)
+    nextbotNameESPLabels = {}
+end
+
+local function startDownedNameESP()
+    downedNameESPConnection = RunService.Heartbeat:Connect(function()
+        cleanupNameESPLabels(downedNameESPLabels)
+        downedNameESPLabels = {}
+        local folder = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("Players")
+        if folder then
+            for _, char in ipairs(folder:GetChildren()) do
+                if char:IsA("Model") then
+                    local team = char:GetAttribute("Team")
+                    local downed = char:GetAttribute("Downed")
+                    if team ~= "Nextbot" and char.Name ~= player.Name and downed == true then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if hrp and workspace.CurrentCamera then
+                            local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
+                            if onScreen then
+                                local distance = getDistanceFromPlayer(hrp.Position)
+                                local displayText = char.Name
+                                if featureStates.DownedDistanceESP then
+                                    displayText = displayText .. "\n" .. math.floor(distance) .. "米"
+                                end
+                                local label = Drawing.new("Text")
+                                label.Text = displayText
+                                label.Size = 16
+                                label.Center = true
+                                label.Outline = true
+                                label.OutlineColor = Color3.new(0, 0, 0)
+                                label.Color = Color3.fromRGB(255, 165, 0)
+                                label.Position = Vector2.new(pos.X, pos.Y - 50)
+                                label.Visible = true
+                                table.insert(downedNameESPLabels, label)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopDownedNameESP()
+    if downedNameESPConnection then
+        downedNameESPConnection:Disconnect()
+        downedNameESPConnection = nil
+    end
+    cleanupNameESPLabels(downedNameESPLabels)
+    downedNameESPLabels = {}
+end
+
+-- Function to handle character loading
+local function onCharacterAdded(newCharacter, plr)
+    if plr == player then
+        character = newCharacter
+        humanoid = character:WaitForChild("Humanoid")
+        rootPart = character:WaitForChild("HumanoidRootPart")
+        print("Character loaded for player: " .. plr.Name)
+        setupJumpBoost()
+        reapplyFeatures()
+    end
+end
+
+-- Function to reapply all active features after respawn
+local function reapplyFeatures()
+    if featureStates.Fly then
+        if flying then stopFlying() end
+        startFlying()
+    end
+    if featureStates.AutoJump then
+        if AutoJumpConnection then stopAutoJump() end
+        startAutoJump()
+    end
+    if featureStates.SpeedHack then
+        if ToggleTpwalk then stopTpwalk() end
+        startTpwalk()
+    end
+    if featureStates.JumpBoost then
+        startJumpBoost()
+    end
+    if featureStates.AntiAFK then
+        if AntiAFKConnection then stopAntiAFK() end
+        startAntiAFK()
+    end
+    if featureStates.AutoCarry then
+        if AutoCarryConnection then stopAutoCarry() end
+        startAutoCarry()
+    end
+    if featureStates.AutoRevive then
+        stopAutoRevive()
+        startAutoRevive()
+    end
+    if featureStates.FullBright then
+        startFullBright()
+    else
+        stopFullBright()
+    end
+    if featureStates.NoFog then
+        startNoFog()
+    else
+        stopNoFog()
+    end
+    if featureStates.AutoVote then
+        if AutoVoteConnection then stopAutoVote() end
+        startAutoVote()
+    end
+    if featureStates.AutoSelfRevive then
+        if AutoSelfReviveConnection then stopAutoSelfRevive() end
+        startAutoSelfRevive()
+    end
+    if featureStates.AutoWin then
+        if AutoWinConnection then stopAutoWin() end
+        startAutoWin()
+    end
+    if featureStates.AutoMoneyFarm then
+        if AutoMoneyFarmConnection then stopAutoMoneyFarm() end
+        startAutoMoneyFarm()
+    end
+    if featureStates.PlayerTracer then
+        if playerTracerConnection then stopPlayerTracer() end
+        startPlayerTracer()
+    end
+    if featureStates.NextbotTracer then
+        if nextbotTracerConnection then stopNextbotTracer() end
+        startNextbotTracer()
+    end
+    if featureStates.DownedTracer then
+        if downedTracerConnection then stopDownedTracer() end
+        startDownedTracer()
+    end
+    if featureStates.PlayerNameESP then
+        if playerNameESPConnection then stopPlayerNameESP() end
+        startPlayerNameESP()
+    end
+    if featureStates.NextbotNameESP then
+        if nextbotNameESPConnection then stopNextbotNameESP() end
+        startNextbotNameESP()
+    end
+    if featureStates.DownedNameESP then
+        if downedNameESPConnection then stopDownedNameESP() end
+        startDownedNameESP()
+    end
+    if featureStates.DesiredFOV and workspace.CurrentCamera then
+        workspace.CurrentCamera.FieldOfView = featureStates.DesiredFOV
+    end
+end
+
+-- Function to handle player joining
+local function onPlayerAdded(plr)
+    plr.CharacterAdded:Connect(function(newCharacter)
+        onCharacterAdded(newCharacter, plr)
+    end)
+    if plr.Character then
+        onCharacterAdded(plr.Character, plr)
+    end
+end
+
+-- Connect player added event
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+-- Handle existing players
+for _, plr in ipairs(Players:GetPlayers()) do
+    onPlayerAdded(plr)
+end
+
+-- Input handling for infinite jump (keyboard)
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if not gameProcessedEvent and input.KeyCode == Enum.KeyCode.Space then
+        if featureStates.InfiniteJump then
+            if featureStates.JumpMethod == "按住" then
+                isJumpHeld = true
+                bouncePlayer()
+                task.spawn(function()
+                    while isJumpHeld and featureStates.InfiniteJump and featureStates.JumpMethod == "Hold" do
+                        bouncePlayer()
+                        task.wait(0.05)
+                    end
+                end)
+            elseif featureStates.JumpMethod == "连跳" then
+                bouncePlayer()
+            end
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessedEvent)
+    if not gameProcessedEvent and input.KeyCode == Enum.KeyCode.Space then
+        isJumpHeld = false
+    end
+end)
+
+-- Handle mobile jump button tap and hold
+local function setupMobileJumpButton()
+    local success, result = pcall(function()
+        local touchGui = player.PlayerGui:WaitForChild("TouchGui", 5)
+        local touchControlFrame = touchGui:WaitForChild("TouchControlFrame", 5)
+        local jumpButton = touchControlFrame:WaitForChild("JumpButton", 5)
+        print("Mobile jump button found, setting up")
+        
+        jumpButton.Activated:Connect(function()
+            print("Mobile jump button tapped")
+            if featureStates.InfiniteJump then
+                bouncePlayer()
+            end
+        end)
+
+        jumpButton.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                print("Mobile jump button held")
+                isJumpHeld = true
+                if featureStates.InfiniteJump then
+                    while isJumpHeld and featureStates.InfiniteJump and wait(0.1) do
+                        bouncePlayer()
+                    end
+                end
+            end
+        end)
+
+        jumpButton.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                print("Mobile jump button released")
+                isJumpHeld = false
+            end
+        end)
+    end)
+    if not success then
+        warn("Failed to set up mobile jump button: " .. tostring(result))
+    end
+end
+
+-- Initialize character
+if player.Character then
+    print("Initial character found")
+    onCharacterAdded(player.Character, player)
+else
+    print("Waiting for character to load")
+    player.CharacterAdded:Connect(function(newCharacter)
+        onCharacterAdded(newCharacter, player)
+    end)
+end
+
+-- Connect fly update
+RunService.RenderStepped:Connect(updateFly)
+
+-- Connect FOV enforcement
+RunService.Heartbeat:Connect(function()
+    if workspace.CurrentCamera and featureStates.DesiredFOV then
+        workspace.CurrentCamera.FieldOfView = featureStates.DesiredFOV
+    end
+end)
+
+-- UI Setup with WindUI
+local function setupGui()
+    local FeatureSection = Window:Section({ Title = "汉化: BH-Team Q3E4#006", Opened = true })
+
+    local Tabs = {
+        Main = FeatureSection:Tab({ Title = "主要", Icon = "layout-grid" }),
+        Auto = FeatureSection:Tab({ Title = "自动", Icon = "zap" }),
+        Visuals = FeatureSection:Tab({ Title = "视觉", Icon = "eye" }),
+        ESP = FeatureSection:Tab({ Title = "绘制", Icon = "scan" }),
+        Settings = FeatureSection:Tab({ Title = "设置", Icon = "settings" })
+    }
+
+    -- Main Tab
+    Tabs.Main:Section({ Title = "运动", TextSize = 20 })
+    Tabs.Main:Section({ Title = "控制角色远动", TextSize = 16, TextTransparency = 0.25 })
+    Tabs.Main:Divider()
+
+    local InfiniteJumpToggle = Tabs.Main:Toggle({
+        Title = "无限跳",
+        Value = false,
+        Callback = function(state)
+            featureStates.InfiniteJump = state
+        end
+    })
+
+    local AutoJumpToggle = Tabs.Main:Toggle({
+        Title = "自动跳",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoJump = state
+            if state then
+                startAutoJump()
+            else
+                stopAutoJump()
+            end
+        end
+    })
+
+    local JumpMethodDropdown = Tabs.Main:Dropdown({
+        Title = "自动跳跃发送",
+        Values = {
+            "按住", 
+            "连跳"
+        },
+        Value = "按住",
+        Callback = function(value)
+            featureStates.JumpMethod = value
+            print("Jump method changed to: " .. value)
+        end
+    })
+
+    local FlyToggle = Tabs.Main:Toggle({
+        Title = "飞行",
+        Value = false,
+        Callback = function(state)
+            featureStates.Fly = state
+            if state then
+                startFlying()
+            else
+                stopFlying()
+            end
+        end
+    })
+
+    local FlySpeedSlider = Tabs.Main:Slider({
+        Title = "飞行速度",
+        Desc = "m/h",
+        Value = { Min = 1, Max = 900, Default = 50, Step = 1 },
+        Callback = function(value)
+            featureStates.FlySpeed = value
+        end
+    })
+
+    local SpeedHackToggle = Tabs.Main:Toggle({
+        Title = "启用速度",
+        Value = false,
+        Callback = function(state)
+            featureStates.SpeedHack = state
+            if state then
+                startTpwalk()
+            else
+                stopTpwalk()
+            end
+        end
+    })
+
+    local SpeedHackSlider = Tabs.Main:Slider({
+        Title = "设置移动速度",
+        Desc = "m/h",
+        Value = { Min = 1, Max = 500, Default = 1, Step = 1 },
+        Callback = function(value)
+            featureStates.TpwalkValue = value
+        end
+    })
+
+    local JumpBoostToggle = Tabs.Main:Toggle({
+        Title = "启用跳跃高度",
+        Value = false,
+        Callback = function(state)
+            featureStates.JumpBoost = state
+            if state then
+                startJumpBoost()
+            else
+                stopJumpBoost()
+            end
+        end
+    })
+
+    local JumpBoostSlider = Tabs.Main:Slider({
+        Title = "设置跳跃高度",
+        Desc = "m/h",
+        Value = { Min = 16, Max = 500, Default = 50, Step = 1 },
+        Callback = function(value)
+            featureStates.JumpPower = value
+            if featureStates.JumpBoost then
+                if humanoid then
+                    humanoid.JumpPower = featureStates.JumpPower
+                end
+            end
+        end
+    })
+
+    local AntiAFKToggle = Tabs.Main:Toggle({
+        Title = "反挂机",
+        Value = false,
+        Callback = function(state)
+            featureStates.AntiAFK = state
+            if state then
+                startAntiAFK()
+            else
+                stopAntiAFK()
+            end
+        end
+    })
+
+    -- Visuals Tab
+    Tabs.Visuals:Section({ Title = "视觉增强", TextSize = 20 })
+    Tabs.Visuals:Section({ Title = "自定义游戏视觉效果", TextSize = 16, TextTransparency = 0.25 })
+    Tabs.Visuals:Divider()
+
+    local FullBrightToggle = Tabs.Visuals:Toggle({
+        Title = "高亮",
+        Value = false,
+        Callback = function(state)
+            featureStates.FullBright = state
+            if state then
+                startFullBright()
+            else
+                stopFullBright()
+            end
+        end
+    })
+
+    local NoFogToggle = Tabs.Visuals:Toggle({
+        Title = "无雾",
+        Value = false,
+        Callback = function(state)
+            featureStates.NoFog = state
+            if state then
+                startNoFog()
+            else
+                stopNoFog()
+            end
+        end
+    })
+
+    local FOVSlider = Tabs.Visuals:Slider({
+        Title = "视角大小",
+        Desc = "...",
+        Value = { Min = 10, Max = 120, Default = 70, Step = 1 },
+        Callback = function(value)
+            featureStates.DesiredFOV = value
+            local camera = workspace.CurrentCamera or game:GetService("Workspace"):WaitForChild("CurrentCamera", 5)
+            if camera then
+                camera.FieldOfView = value
+            end
+        end
+    })
+
+    -- ESP Tab
+    Tabs.ESP:Section({ Title = "绘制", TextSize = 20 })
+    Tabs.ESP:Section({ Title = "为玩家和项目添加指示器", TextSize = 16, TextTransparency = 0.25 })
+    Tabs.ESP:Divider()
+
+    local PlayerTracerToggle = Tabs.ESP:Toggle({
+        Title = "玩家线条",
+        Value = false,
+        Callback = function(state)
+            featureStates.PlayerTracer = state
+            if state then
+                startPlayerTracer()
+            else
+                stopPlayerTracer()
+            end
+        end
+    })
+
+    local NextbotTracerToggle = Tabs.ESP:Toggle({
+        Title = "NextBot 线条",
+        Value = false,
+        Callback = function(state)
+            featureStates.NextbotTracer = state
+            if state then
+                startNextbotTracer()
+            else
+                stopNextbotTracer()
+            end
+        end
+    })
+
+    local DownedTracerToggle = Tabs.ESP:Toggle({
+        Title = "倒地玩家 线条",
+        Value = false,
+        Callback = function(state)
+            featureStates.DownedTracer = state
+            if state then
+                startDownedTracer()
+            else
+                stopDownedTracer()
+            end
+        end
+    })
+
+    local PlayerNameESPToggle = Tabs.ESP:Toggle({
+        Title = "显示名字",
+        Value = false,
+        Callback = function(state)
+            featureStates.PlayerNameESP = state
+            if state then
+                startPlayerNameESP()
+            else
+                stopPlayerNameESP()
+            end
+        end
+    })
+
+    local PlayerDistanceESPToggle = Tabs.ESP:Toggle({
+        Title = "玩家距离显示",
+        Value = false,
+        Callback = function(state)
+            featureStates.PlayerDistanceESP = state
+            if featureStates.PlayerNameESP then
+                stopPlayerNameESP()
+                startPlayerNameESP()
+            end
+        end
+    })
+
+    local DownedNameESPToggle = Tabs.ESP:Toggle({
+        Title = "倒地玩家名字显示",
+        Value = false,
+        Callback = function(state)
+            featureStates.DownedNameESP = state
+            if state then
+                startDownedNameESP()
+            else
+                stopDownedNameESP()
+            end
+        end
+    })
+
+    local DownedDistanceESPToggle = Tabs.ESP:Toggle({
+        Title = "倒地玩家距离显示",
+        Value = false,
+        Callback = function(state)
+            featureStates.DownedDistanceESP = state
+            if featureStates.DownedNameESP then
+                stopDownedNameESP()
+                startDownedNameESP()
+            end
+        end
+    })
+
+    local NextbotNameESPToggle = Tabs.ESP:Toggle({
+        Title = "NextBot 名字显示",
+        Value = false,
+        Callback = function(state)
+            featureStates.NextbotNameESP = state
+            if state then
+                startNextbotNameESP()
+            else
+                stopNextbotNameESP()
+            end
+        end
+    })
+
+    local NextbotDistanceESPToggle = Tabs.ESP:Toggle({
+        Title = "NextBot 距离显示",
+        Value = false,
+        Callback = function(state)
+            featureStates.NextbotDistanceESP = state
+            if featureStates.NextbotNameESP then
+                stopNextbotNameESP()
+                startNextbotNameESP()
+            end
+        end
+    })
+
+    -- Auto Tab
+    Tabs.Auto:Section({ Title = "自动刷??功能", TextSize = 20 })
+    Tabs.Auto:Section({ Title = "自动游戏服务", TextSize = 16, TextTransparency = 0.25 })
+    Tabs.Auto:Divider()
+
+    local AutoCarryToggle = Tabs.Auto:Toggle({
+        Title = "自动携带倒地玩家",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoCarry = state
+            if state then
+                startAutoCarry()
+            else
+                stopAutoCarry()
+            end
+        end
+    })
+
+    local AutoReviveToggle = Tabs.Auto:Toggle({
+        Title = "自动重生",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoRevive = state
+            if state then
+                startAutoRevive()
+            else
+                stopAutoRevive()
+            end
+        end
+    })
+
+    local AutoVoteDropdown = Tabs.Auto:Dropdown({
+        Title = "选择要自动投票的地图",
+        Values = {
+            "第一张地图", 
+            "第二张地图", 
+            "第三张地图", 
+            "第四张地图"
+        },
+        Value = "无",
+        Callback = function(value)
+            if value == "第一张地图" then
+                featureStates.SelectedMap = 1
+            elseif value == "第二张地图" then
+                featureStates.SelectedMap = 2
+            elseif value == "第三张地图" then
+                featureStates.SelectedMap = 3
+            elseif value == "第四张地图" then
+                featureStates.SelectedMap = 4
+            end
+        end
+    })
+
+    local AutoVoteToggle = Tabs.Auto:Toggle({
+        Title = "启用自动投票",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoVote = state
+            if state then
+                startAutoVote()
+            else
+                stopAutoVote()
+            end
+        end
+    })
+
+    local AutoSelfReviveToggle = Tabs.Auto:Toggle({
+        Title = "自动自我重生",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoSelfRevive = state
+            if state then
+                startAutoSelfRevive()
+            else
+                stopAutoSelfRevive()
+            end
+        end
+    })
+
+    Tabs.Auto:Button({
+        Title = "点击重生",
+        Desc = "免费复活你自己",
+        Icon = "heart",
+        Callback = function()
+            manualRevive()
+        end
+    })
+
+    local AutoWinToggle = Tabs.Auto:Toggle({
+        Title = "自动胜利",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoWin = state
+            if state then
+                startAutoWin()
+            else
+                stopAutoWin()
+            end
+        end
+    })
+
+    local AutoMoneyFarmToggle = Tabs.Auto:Toggle({
+        Title = "自动刷钱",
+        Value = false,
+        Callback = function(state)
+            featureStates.AutoMoneyFarm = state
+            if state then
+                startAutoMoneyFarm()
+                featureStates.AutoRevive = true
+                AutoReviveToggle:Set(true)
+                startAutoRevive()
+            else
+                stopAutoMoneyFarm()
+            end
+        end
+    })
+
+    -- Settings Tab
+    Tabs.Settings:Section({ Title = "UI 设置", TextSize = 20 })
+    Tabs.Settings:Section({ Title = "个性化界面", TextSize = 16, TextTransparency = 0.25 })
+    Tabs.Settings:Divider()
+
+    local themes = {}
+    for themeName, _ in pairs(WindUI:GetThemes()) do
+        table.insert(themes, themeName)
+    end
+    table.sort(themes)
+
+    local canChangeTheme = true
+    local canChangeDropdown = true
+
+    local ThemeDropdown = Tabs.Settings:Dropdown({
+        Title = "更新主题",
+        Values = themes,
+        SearchBarEnabled = true,
+        MenuWidth = 280,
+        Value = "Dark",
+        Callback = function(theme)
+            if canChangeDropdown then
+                canChangeTheme = false
+                WindUI:SetTheme(theme)
+                canChangeTheme = true
+            end
+        end
+    })
+
+    local TransparencySlider = Tabs.Settings:Slider({
+        Title = "界面透明度",
+        Value = { 
+            Min = 0, 
+            Max = 1, 
+            Default = 0.2, 
+            Step = 0.1 
+        },
+        Callback = function(value)
+            WindUI.TransparencyValue = tonumber(value)
+            Window:ToggleTransparency(tonumber(value) > 0)
+        end
+    })
+
+    local ThemeToggle = Tabs.Settings:Toggle({
+        Title = "启用深色模式",
+        Desc = "Use dark color scheme",
+        Value = true,
+        Callback = function(state)
+            if canChangeTheme then
+                local newTheme = state and "Dark" or "Light"
+                WindUI:SetTheme(newTheme)
+                if canChangeDropdown then
+                    ThemeDropdown:Select(newTheme)
+                end
+            end
+        end
+    })
+
+    WindUI:OnThemeChange(function(theme)
+        canChangeTheme = false
+        ThemeToggle:Set(theme == "Dark")
+        canChangeTheme = true
+    end)
+
+    -- Configuration Manager
+    local configName = "default"
+    local configFile = nil
+    local MyPlayerData = {
+        name = player.Name,
+        level = 1,
+        inventory = {}
+    }
+
+    Tabs.Settings:Section({ Title = "保存设置", TextSize = 20 })
+    Tabs.Settings:Section({ Title = "保存并加载您的设置", TextSize = 16, TextTransparency = 0.25 })
+    Tabs.Settings:Divider()
+
+    Tabs.Settings:Input({
+        Title = "输入保存名字",
+        Value = configName,
+        Callback = function(value)
+            configName = value or "default"
+        end
+    })
+
+    local ConfigManager = Window.ConfigManager
+    if ConfigManager then
+        ConfigManager:Init(Window)
+        
+        Tabs.Settings:Button({
+            Title = "保存文件",
+            Icon = "save",
+            Variant = "Primary",
+            Callback = function()
+                configFile = ConfigManager:CreateConfig(configName)
+                configFile:Register("InfiniteJumpToggle", InfiniteJumpToggle)
+                configFile:Register("AutoJumpToggle", AutoJumpToggle)
+                configFile:Register("JumpMethodDropdown", JumpMethodDropdown)
+                configFile:Register("FlyToggle", FlyToggle)
+                configFile:Register("FlySpeedSlider", FlySpeedSlider)
+                configFile:Register("SpeedHackToggle", SpeedHackToggle)
+                configFile:Register("SpeedHackSlider", SpeedHackSlider)
+                configFile:Register("JumpBoostToggle", JumpBoostToggle)
+                configFile:Register("JumpBoostSlider", JumpBoostSlider)
+                configFile:Register("AntiAFKToggle", AntiAFKToggle)
+                configFile:Register("FullBrightToggle", FullBrightToggle)
+                configFile:Register("NoFogToggle", NoFogToggle)
+                configFile:Register("FOVSlider", FOVSlider)
+                configFile:Register("PlayerTracerToggle", PlayerTracerToggle)
+                configFile:Register("NextbotTracerToggle", NextbotTracerToggle)
+                configFile:Register("DownedTracerToggle", DownedTracerToggle)
+                configFile:Register("PlayerNameESPToggle", PlayerNameESPToggle)
+                configFile:Register("PlayerDistanceESPToggle", PlayerDistanceESPToggle)
+                configFile:Register("DownedNameESPToggle", DownedNameESPToggle)
+                configFile:Register("DownedDistanceESPToggle", DownedDistanceESPToggle)
+                configFile:Register("NextbotNameESPToggle", NextbotNameESPToggle)
+                configFile:Register("NextbotDistanceESPToggle", NextbotDistanceESPToggle)
+                configFile:Register("AutoCarryToggle", AutoCarryToggle)
+                configFile:Register("AutoReviveToggle", AutoReviveToggle)
+                configFile:Register("AutoVoteDropdown", AutoVoteDropdown)
+                configFile:Register("AutoVoteToggle", AutoVoteToggle)
+                configFile:Register("AutoSelfReviveToggle", AutoSelfReviveToggle)
+                configFile:Register("AutoWinToggle", AutoWinToggle)
+                configFile:Register("AutoMoneyFarmToggle", AutoMoneyFarmToggle)
+                configFile:Register("ThemeDropdown", ThemeDropdown)
+                configFile:Register("TransparencySlider", TransparencySlider)
+                configFile:Register("ThemeToggle", ThemeToggle)
+                configFile:Set("playerData", MyPlayerData)
+                configFile:Set("lastSave", os.date("%Y-%m-%d %H:%M:%S"))
+                configFile:Save()
+            end
+        })
+
+        Tabs.Settings:Button({
+            Title = "加载文件",
+            Icon = "folder",
+            Callback = function()
+                configFile = ConfigManager:CreateConfig(configName)
+                local loadedData = configFile:Load()
+                if loadedData then
+                    if loadedData.playerData then
+                        MyPlayerData = loadedData.playerData
+                    end
+                    local lastSave = loadedData.lastSave or "Unknown"
+                    Tabs.Settings:Paragraph({
+                        Title = "Player Data",
+                        Desc = string.format("Name: %s\nLevel: %d\nInventory: %s", 
+                            MyPlayerData.name, 
+                            MyPlayerData.level, 
+                            table.concat(MyPlayerData.inventory, ", "))
+                    })
+                end
+            end
+        })
+    else
+        Tabs.Settings:Paragraph({
+            Title = "配置管理器不可用",
+            Desc = "此功能需要ConfigManager",
+            Image = "alert-triangle",
+            ImageSize = 20,
+            Color = "White"
+        })
+    end
+
+    -- Select default tab
+    Window:SelectTab(1)
+end
+
+-- Initialize UI and mobile controls
+setupGui()
+setupMobileJumpButton()
+
+-- Window event handlers
+Window:OnClose(function()
+    print("Window closed")
+    if ConfigManager and configFile then
+        configFile:Set("playerData", MyPlayerData)
+        configFile:Set("lastSave", os.date("%Y-%m-%d %H:%M:%S"))
+        configFile:Save()
+        print("Config auto-saved on close")
+    end
+end)
+
+Window:OnDestroy(function()
+    print("Window destroyed")
+end)
+
+Window:OnOpen(function()
+    print("Window opened")
+end)
+
+Window:UnlockAll()
